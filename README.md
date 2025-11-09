@@ -1,4 +1,4 @@
-# ScrollBlock Web Tracker
+# Scrollify Web Tracker
 
 A Chrome Extension (Manifest V3) that tracks your web browsing activity, classifies websites as productive or unproductive, and syncs data with Supabase.
 

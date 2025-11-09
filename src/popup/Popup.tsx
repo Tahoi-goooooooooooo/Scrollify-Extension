@@ -95,7 +95,7 @@ function Popup() {
   if (!user) {
     return (
       <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-        <h2 style={{ marginTop: 0, marginBottom: '20px' }}>ScrollBlock Web Tracker</h2>
+        <h2 style={{ marginTop: 0, marginBottom: '20px' }}>Scrollify Web Tracker</h2>
         <form onSubmit={handleLogin}>
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>
@@ -168,7 +168,7 @@ function Popup() {
   return (
     <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif', minWidth: '300px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ margin: 0, fontSize: '18px' }}>ScrollBlock</h2>
+        <h2 style={{ margin: 0, fontSize: '18px' }}>Scrollify</h2>
         <button
           onClick={handleLogout}
           style={{

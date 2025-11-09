@@ -410,17 +410,21 @@ async function processTime(state: TrackingState, elapsed: number): Promise<void>
     const newConsecutive = state.consecutiveProductiveMs + elapsed;
     const newTotal = (state.totalProductiveMs || 0) + elapsed;
     
-    // Check if we hit the AI call trigger threshold (2 minutes = 120 seconds)
-    // Only trigger if we just crossed the threshold (to avoid multiple triggers)
+    // Check if we've reached or exceeded the AI call trigger threshold (2 minutes = 120 seconds)
+    // Trigger immediately when threshold is reached, even if we jumped past it
     const previousConsecutive = state.consecutiveProductiveMs;
-    const justCrossedThreshold = newConsecutive >= AI_CALL_TRIGGER_MS && previousConsecutive < AI_CALL_TRIGGER_MS;
+    const hasReachedThreshold = newConsecutive >= AI_CALL_TRIGGER_MS;
+    const wasBelowThreshold = previousConsecutive < AI_CALL_TRIGGER_MS;
     
-    if (justCrossedThreshold) {
-      // Trigger AI agent call when productive time hits 2 minutes
+    // Trigger if we just crossed the threshold OR if we're at/past threshold and haven't triggered yet
+    // This ensures immediate triggering as soon as we hit 2 minutes
+    if (hasReachedThreshold && wasBelowThreshold) {
+      // Trigger AI agent call immediately when productive time reaches 2 minutes
       const productiveSeconds = Math.floor(newConsecutive / 1000);
-      console.log(`✅ Productive time reached ${productiveSeconds} seconds (2 minutes), triggering AI agent call`);
+      console.log(`🚀 Productive time reached ${productiveSeconds} seconds (2 minutes), triggering AI agent call IMMEDIATELY`);
       await triggerAICall();
       // Note: triggerAICall will reset productive time after call is initiated
+      return; // Exit early to prevent further processing after call is triggered
     }
     
     // IMPORTANT: Do NOT reset consecutiveProductiveMs automatically

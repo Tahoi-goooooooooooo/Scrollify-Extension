@@ -75,7 +75,7 @@ async function updateDomain(newDomain: string | null): Promise<void> {
     }
   }
 
-  // Update domain and reset counters
+  // Update domain and reset consecutive counters (but keep total accumulated time)
   const newClassification = classifyDomain(newDomain);
   await updateTrackingState({
     currentDomain: newDomain,
@@ -169,33 +169,39 @@ async function processTime(state: TrackingState, elapsed: number): Promise<void>
 
   if (classification === 'productive') {
     const newConsecutive = state.consecutiveProductiveMs + elapsed;
+    const newTotal = (state.totalProductiveMs || 0) + elapsed;
     
     // Check if we hit the productive trigger threshold
     if (newConsecutive >= PRODUCTIVE_TRIGGER_MS) {
       await recordProductiveTrigger(state.currentDomain, newConsecutive, userId);
       await updateTrackingState({
         consecutiveProductiveMs: 0,
+        totalProductiveMs: newTotal,
         lastTick: Date.now(),
       });
     } else {
       await updateTrackingState({
         consecutiveProductiveMs: newConsecutive,
+        totalProductiveMs: newTotal,
         lastTick: Date.now(),
       });
     }
   } else if (classification === 'unproductive') {
     const newBuffer = state.unproductiveMsBuffer + elapsed;
+    const newTotal = (state.totalUnproductiveMs || 0) + elapsed;
     
     // Check if we should flush the buffer
     if (newBuffer >= UNPRODUCTIVE_BUFFER_MS) {
       await recordUnproductiveTime(newBuffer, userId);
       await updateTrackingState({
         unproductiveMsBuffer: 0,
+        totalUnproductiveMs: newTotal,
         lastTick: Date.now(),
       });
     } else {
       await updateTrackingState({
         unproductiveMsBuffer: newBuffer,
+        totalUnproductiveMs: newTotal,
         lastTick: Date.now(),
       });
     }
@@ -283,6 +289,8 @@ supabase.auth.onAuthStateChange(async (event, session) => {
       currentDomain: null,
       consecutiveProductiveMs: 0,
       unproductiveMsBuffer: 0,
+      totalProductiveMs: 0,
+      totalUnproductiveMs: 0,
     });
     console.log('User signed out');
   }

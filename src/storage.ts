@@ -7,7 +7,10 @@ export interface TrackingState {
   lastTick: number;
   consecutiveProductiveMs: number;
   unproductiveMsBuffer: number;
+  totalProductiveMs: number; // Total accumulated productive time
+  totalUnproductiveMs: number; // Total accumulated unproductive time
   userId: string | null;
+  theme: 'light' | 'dark'; // Theme preference
 }
 
 const DEFAULT_STATE: TrackingState = {
@@ -15,7 +18,10 @@ const DEFAULT_STATE: TrackingState = {
   lastTick: Date.now(),
   consecutiveProductiveMs: 0,
   unproductiveMsBuffer: 0,
+  totalProductiveMs: 0,
+  totalUnproductiveMs: 0,
   userId: null,
+  theme: 'light',
 };
 
 const STORAGE_KEY = 'trackingState';

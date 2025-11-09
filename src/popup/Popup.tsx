@@ -219,30 +219,33 @@ function Popup() {
     }
 
     const unproductiveSeconds = Math.floor((state.totalUnproductiveMs || 0) / 1000);
+    const productiveSeconds = Math.floor((state.totalProductiveMs || 0) / 1000);
     
-    // If unproductive time is zero, nothing to do
-    if (unproductiveSeconds === 0) {
-      console.log('No unproductive time to transfer');
+    // If both times are zero, nothing to do
+    if (unproductiveSeconds === 0 && productiveSeconds === 0) {
+      console.log('No time to transfer');
       return;
     }
 
     try {
-      // Get current best_score from leaderboard_global
+      // Get current best_score and productive_time from leaderboard_global
       const { data: currentLeaderboard, error: fetchError } = await supabase
         .from('leaderboard_global')
-        .select('user_id, best_score')
+        .select('user_id, best_score, productive_time')
         .eq('user_id', state.userId)
         .single();
 
-      // If no entry exists, create one with the unproductive time as score
+      // If no entry exists, create one with both unproductive and productive time
       if (fetchError && fetchError.code === 'PGRST116') {
         const initialScore = unproductiveSeconds;
+        const initialProductiveTime = productiveSeconds;
         
         const { error: insertError } = await supabase
           .from('leaderboard_global')
           .insert({
             user_id: state.userId,
             best_score: initialScore,
+            productive_time: initialProductiveTime,
             updated_at: new Date().toISOString(),
           });
 
@@ -255,7 +258,7 @@ function Popup() {
             totalProductiveMs: 0,
             consecutiveProductiveMs: 0,
           });
-          console.log(`Successfully created leaderboard entry with score ${initialScore} and reset times`);
+          console.log(`Successfully created leaderboard entry with best_score: ${initialScore}s and productive_time: ${initialProductiveTime}s`);
         }
         return;
       }
@@ -271,14 +274,16 @@ function Popup() {
         return;
       }
 
-      // Calculate new score: add unproductive time only (no subtraction of productive time)
+      // Calculate new values: add unproductive time to best_score, add productive time to productive_time
       const newScore = (currentLeaderboard.best_score || 0) + unproductiveSeconds;
+      const newProductiveTime = (currentLeaderboard.productive_time || 0) + productiveSeconds;
 
-      // Update leaderboard_global
+      // Update leaderboard_global with both best_score and productive_time
       const { error: updateError } = await supabase
         .from('leaderboard_global')
         .update({
           best_score: newScore,
+          productive_time: newProductiveTime,
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', state.userId);
@@ -293,7 +298,10 @@ function Popup() {
           totalProductiveMs: 0,
           consecutiveProductiveMs: 0,
         });
-        console.log(`Successfully updated best_score: +${unproductiveSeconds}s (new score: ${newScore}) and reset both times to zero`);
+        console.log(`Successfully updated leaderboard:`);
+        console.log(`  best_score: +${unproductiveSeconds}s (new: ${newScore}s)`);
+        console.log(`  productive_time: +${productiveSeconds}s (new: ${newProductiveTime}s)`);
+        console.log(`  Reset both times to zero`);
       }
     } catch (error) {
       console.error('Error transferring time:', error);

@@ -158,20 +158,30 @@ async function recordUnproductiveTime(ms: number, userId: string): Promise<void>
  */
 async function triggerAICall(): Promise<void> {
   try {
+    console.log('📞 triggerAICall() called - starting call initiation process...');
     const state = await getTrackingState();
     const now = Date.now();
     
     // Check cooldown period (prevent multiple calls within cooldown)
     if (state.lastCallTriggerTime > 0 && (now - state.lastCallTriggerTime) < AI_CALL_COOLDOWN_MS) {
-      console.log('AI call cooldown active, skipping call');
+      const cooldownRemaining = Math.ceil((AI_CALL_COOLDOWN_MS - (now - state.lastCallTriggerTime)) / 1000);
+      console.log(`⏸️ AI call cooldown active (${cooldownRemaining}s remaining), skipping call`);
+      console.log(`   Last call time: ${new Date(state.lastCallTriggerTime).toISOString()}`);
+      console.log(`   Current time: ${new Date(now).toISOString()}`);
+      console.log(`   Cooldown period: ${AI_CALL_COOLDOWN_MS / 1000}s`);
       return;
     }
+    
+    console.log('✅ Cooldown check passed, proceeding with call...');
 
     // Validate user is logged in
     if (!state.userId) {
-      console.error('No user ID found. Cannot initiate call.');
+      console.error('❌ No user ID found. Cannot initiate call.');
+      console.error('   State:', JSON.stringify(state, null, 2));
       return;
     }
+    
+    console.log('✅ User ID found:', state.userId);
 
     // Fetch dad's number from profiles table using user_id
     const { data: profile, error: profileError } = await supabase
@@ -181,15 +191,21 @@ async function triggerAICall(): Promise<void> {
       .single();
 
     if (profileError || !profile) {
-      console.error('Error fetching profile:', profileError);
+      console.error('❌ Error fetching profile:', profileError);
+      console.error('   Profile data:', profile);
       return;
     }
+    
+    console.log('✅ Profile fetched successfully');
 
     const dadsNumber = profile.dads_number;
     if (!dadsNumber || !dadsNumber.trim()) {
-      console.error('Dad\'s number not found in profile. Cannot initiate call.');
+      console.error('❌ Dad\'s number not found in profile. Cannot initiate call.');
+      console.error('   Profile:', JSON.stringify(profile, null, 2));
       return;
     }
+    
+    console.log('✅ Dad\'s number found:', dadsNumber);
 
     // Clean and format phone number
     const cleanedPhone = dadsNumber.trim().replace(/[\s\-\(\)]/g, '');
@@ -205,14 +221,22 @@ async function triggerAICall(): Promise<void> {
 
     // Validate Twilio credentials
     if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
-      console.error('Twilio credentials missing. Cannot initiate call.');
+      console.error('❌ Twilio credentials missing. Cannot initiate call.');
+      console.error('   TWILIO_ACCOUNT_SID:', TWILIO_ACCOUNT_SID ? 'SET' : 'MISSING');
+      console.error('   TWILIO_AUTH_TOKEN:', TWILIO_AUTH_TOKEN ? 'SET' : 'MISSING');
+      console.error('   TWILIO_PHONE_NUMBER:', TWILIO_PHONE_NUMBER ? 'SET' : 'MISSING');
       return;
     }
+    
+    console.log('✅ Twilio credentials validated');
 
     if (!WEBHOOK_URL || WEBHOOK_URL.includes('your-webhook-server.com')) {
-      console.error('Webhook URL not configured. Please set VITE_WEBHOOK_URL in .env file.');
+      console.error('❌ Webhook URL not configured. Please set VITE_WEBHOOK_URL in .env file.');
+      console.error('   WEBHOOK_URL:', WEBHOOK_URL);
       return;
     }
+    
+    console.log('✅ Webhook URL validated:', WEBHOOK_URL);
 
     // Create Basic Auth header for Twilio
     const credentials = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
@@ -274,12 +298,17 @@ async function triggerAICall(): Promise<void> {
       totalProductiveMs: 0,
     });
     
-    console.log('✅ Productive time reset to 0 after call initiation');
+    console.log('✅✅✅ CALL SUCCESSFULLY INITIATED AND PRODUCTIVE TIME RESET ✅✅✅');
+    console.log('   Call SID:', result.sid);
+    console.log('   To:', toPhoneNumber);
+    console.log('   Productive time reset to 0');
     console.log('   Counter will start accumulating again for the next cycle');
   } catch (error) {
-    console.error('❌ Error triggering AI call:', error);
+    console.error('❌❌❌ ERROR TRIGGERING AI CALL ❌❌❌');
+    console.error('   Error:', error);
     if (error instanceof Error) {
       console.error('   Error message:', error.message);
+      console.error('   Error stack:', error.stack);
     }
   }
 }
@@ -413,18 +442,37 @@ async function processTime(state: TrackingState, elapsed: number): Promise<void>
     // Check if we've reached or exceeded the AI call trigger threshold (2 minutes = 120 seconds)
     // Trigger immediately when threshold is reached, even if we jumped past it
     const previousConsecutive = state.consecutiveProductiveMs;
+    const previousSeconds = Math.floor(previousConsecutive / 1000);
+    const newSeconds = Math.floor(newConsecutive / 1000);
     const hasReachedThreshold = newConsecutive >= AI_CALL_TRIGGER_MS;
     const wasBelowThreshold = previousConsecutive < AI_CALL_TRIGGER_MS;
+    
+    // Log progress every 10 seconds for debugging
+    if (newSeconds > 0 && newSeconds % 10 === 0 && previousSeconds < newSeconds) {
+      console.log(`⏱️ Productive time: ${newSeconds}s / 120s (${Math.floor((newConsecutive / AI_CALL_TRIGGER_MS) * 100)}%)`);
+    }
     
     // Trigger if we just crossed the threshold OR if we're at/past threshold and haven't triggered yet
     // This ensures immediate triggering as soon as we hit 2 minutes
     if (hasReachedThreshold && wasBelowThreshold) {
       // Trigger AI agent call immediately when productive time reaches 2 minutes
       const productiveSeconds = Math.floor(newConsecutive / 1000);
-      console.log(`🚀 Productive time reached ${productiveSeconds} seconds (2 minutes), triggering AI agent call IMMEDIATELY`);
-      await triggerAICall();
+      console.log(`🚀🚀🚀 PRODUCTIVE TIME REACHED ${productiveSeconds} SECONDS (2 MINUTES) 🚀🚀🚀`);
+      console.log(`   Previous: ${previousSeconds}s, New: ${newSeconds}s`);
+      console.log(`   Threshold: ${AI_CALL_TRIGGER_MS}ms (${AI_CALL_TRIGGER_MS / 1000}s)`);
+      console.log(`   Triggering AI agent call NOW...`);
+      
+      try {
+        await triggerAICall();
+        console.log(`✅ triggerAICall() completed`);
+      } catch (error) {
+        console.error(`❌ ERROR in triggerAICall():`, error);
+        console.error(`   Error details:`, error instanceof Error ? error.message : String(error));
+        console.error(`   Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
+      }
+      
       // Note: triggerAICall will reset productive time after call is initiated
-      return; // Exit early to prevent further processing after call is triggered
+      // Don't return early - let the state update continue so we can see the reset
     }
     
     // IMPORTANT: Do NOT reset consecutiveProductiveMs automatically

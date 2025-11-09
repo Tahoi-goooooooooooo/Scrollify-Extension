@@ -30,7 +30,7 @@ module.exports = async (req, res) => {
     twiml.say({
       voice: 'alice',
       language: 'en-US'
-    }, 'Your son is gooning');
+    }, 'Your son is viciously gooning');
     
     // Use Twilio's speech recognition to capture user input
     // This will be processed by Deepgram Aura AI Agent
@@ -47,7 +47,7 @@ module.exports = async (req, res) => {
     gather.say({
       voice: 'alice',
       language: 'en-US'
-    }, 'Let\'s go on a date and talk about your son gooning');
+    }, 'Let\'s go on a 1 on 1 date and talk about your son gooning ');
     
     // If no input, end the call
     twiml.say({

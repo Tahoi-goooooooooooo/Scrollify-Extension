@@ -268,7 +268,7 @@ function Popup() {
       </div>
 
       <div style={{ fontSize: '11px', color: isDark ? '#aaa' : '#666', textAlign: 'center', marginTop: '20px' }}>
-        Tracking updates every 5 seconds
+        Tracking updates every second
       </div>
     </div>
   );

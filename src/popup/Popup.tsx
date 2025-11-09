@@ -105,7 +105,7 @@ function Popup() {
 
   if (!user) {
     return (
-      <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif', backgroundColor: bgColor, color: textColor, minHeight: '400px' }}>
+      <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif', backgroundColor: bgColor, color: textColor }}>
         <h2 style={{ marginTop: 0, marginBottom: '20px' }}>Scrollify Web Tracker</h2>
         <form onSubmit={handleLogin}>
           <div style={{ marginBottom: '15px' }}>
@@ -189,7 +189,7 @@ function Popup() {
   const unproductiveText = '#155724'; // Dark green
 
   return (
-    <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif', minWidth: '300px', backgroundColor: bgColor, color: textColor, minHeight: '400px' }}>
+    <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif', minWidth: '300px', backgroundColor: bgColor, color: textColor }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h2 style={{ margin: 0, fontSize: '18px' }}>Scrollify</h2>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -252,7 +252,7 @@ function Popup() {
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
         <div style={{ padding: '12px', backgroundColor: unproductiveBg, borderRadius: '4px' }}>
           <div style={{ fontSize: '11px', color: unproductiveText, marginBottom: '4px' }}>Unproductive Time</div>
           <div style={{ fontSize: '18px', fontWeight: 'bold', color: unproductiveText }}>
@@ -265,10 +265,6 @@ function Popup() {
             {formatTime(productiveMs)}
           </div>
         </div>
-      </div>
-
-      <div style={{ fontSize: '11px', color: isDark ? '#aaa' : '#666', textAlign: 'center', marginTop: '20px' }}>
-        Tracking updates every second
       </div>
     </div>
   );

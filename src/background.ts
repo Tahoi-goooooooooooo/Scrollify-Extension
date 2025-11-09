@@ -5,7 +5,7 @@ import { supabase } from './supabaseClient';
 // Constants
 const PRODUCTIVE_TRIGGER_MS = 60000; // 60 seconds
 const UNPRODUCTIVE_BUFFER_MS = 10000; // 10 seconds
-const TICK_INTERVAL_MS = 5000; // 5 seconds
+const TICK_INTERVAL_MS = 1000; // 1 second
 
 let isIdle = false;
 let isWindowFocused = true;
@@ -119,7 +119,7 @@ async function recordUnproductiveTime(ms: number, userId: string): Promise<void>
 }
 
 /**
- * Main tick function - called every 5 seconds
+ * Main tick function - called every second
  */
 async function tick(): Promise<void> {
   // Skip if idle or window not focused
@@ -227,7 +227,7 @@ async function initializeTracking(): Promise<void> {
   const currentDomain = extractDomain(currentUrl);
   await updateDomain(currentDomain);
 
-  // Set up interval for periodic ticks (every 5 seconds)
+  // Set up interval for periodic ticks (every second)
   // Note: Service workers can be suspended, but setInterval works while active
   setInterval(() => {
     tick().catch(console.error);

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { supabase } from '../supabaseClient';
 import { getTrackingState, updateTrackingState, setUserId, type TrackingState } from '../storage';
 import { classifyDomain, extractDomain } from '../classify';
+import { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, WEBHOOK_URL } from '../env';
 
 function Popup() {
   const [user, setUser] = useState<any>(null);
@@ -88,6 +89,105 @@ function Popup() {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
     await updateTrackingState({ theme: newTheme });
+  };
+
+  const handleTestCall = async () => {
+    try {
+      // Validate credentials
+      if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
+        alert('Twilio credentials missing. Please check your .env file.');
+        console.error('Twilio credentials missing. Cannot initiate call.');
+        return;
+      }
+
+      if (!WEBHOOK_URL || WEBHOOK_URL.includes('your-webhook-server.com')) {
+        alert('Webhook URL not configured. Please set VITE_WEBHOOK_URL in .env file.');
+        console.error('Webhook URL not configured.');
+        return;
+      }
+
+      // Get current user_id from tracking state
+      const state = await getTrackingState();
+      if (!state.userId) {
+        alert('You must be logged in to test the call.');
+        console.error('No user ID found');
+        return;
+      }
+
+      // Fetch dad's number from profiles table using user_id
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('dads_number')
+        .eq('user_id', state.userId)
+        .single();
+
+      if (profileError || !profile) {
+        alert('Error: Could not find your profile. Please contact support.');
+        console.error('Error fetching profile:', profileError);
+        return;
+      }
+
+      const dadsNumber = profile.dads_number;
+      if (!dadsNumber || !dadsNumber.trim()) {
+        alert('Error: Dad\'s number not found in your profile. Please update your profile.');
+        console.error('Dad\'s number not found in profile');
+        return;
+      }
+
+      // Clean and format phone number
+      const cleanedPhone = dadsNumber.trim().replace(/[\s\-\(\)]/g, '');
+      
+      // Format phone number with country code if needed
+      const toPhoneNumber = cleanedPhone.startsWith('+') 
+        ? cleanedPhone 
+        : cleanedPhone.startsWith('1') && cleanedPhone.length === 11
+        ? `+${cleanedPhone}`
+        : `+1${cleanedPhone}`;
+      
+      console.log('Test call - Calling dad\'s number:', toPhoneNumber, '(original:', dadsNumber, ')');
+
+      // Create Basic Auth header for Twilio
+      const credentials = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
+      
+      // Twilio API endpoint to create a call
+      const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls.json`;
+      
+      // Create form data for Twilio API
+      const formData = new URLSearchParams();
+      formData.append('From', TWILIO_PHONE_NUMBER);
+      formData.append('To', toPhoneNumber);
+      formData.append('Url', WEBHOOK_URL);
+      formData.append('Method', 'POST');
+
+      console.log('Initiating test call...', {
+        from: TWILIO_PHONE_NUMBER,
+        to: toPhoneNumber,
+        webhook: WEBHOOK_URL
+      });
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${credentials}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error initiating Twilio call:', errorText);
+        alert(`Error: ${errorText}`);
+        return;
+      }
+
+      const result = await response.json();
+      console.log('AI agent call initiated:', result);
+      alert(`Call initiated! Call SID: ${result.sid}\nCalling: ${toPhoneNumber}\nYou should receive a call shortly.`);
+    } catch (error) {
+      console.error('Error triggering test call:', error);
+      alert(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const handleTransferUnproductiveTime = async () => {
@@ -381,9 +481,27 @@ function Popup() {
           borderRadius: '4px',
           cursor: 'pointer',
           fontWeight: '500',
+          marginBottom: '12px',
         }}
       >
         Update Leaderboard
+      </button>
+
+      <button
+        onClick={handleTestCall}
+        style={{
+          width: '100%',
+          padding: '10px',
+          fontSize: '14px',
+          backgroundColor: '#007bff',
+          color: 'white',
+          border: 'none',
+          borderRadius: '4px',
+          cursor: 'pointer',
+          fontWeight: '500',
+        }}
+      >
+        📞 Test Call to Dad's Number
       </button>
     </div>
   );

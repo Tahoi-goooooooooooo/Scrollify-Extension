@@ -61,8 +61,20 @@ function Popup() {
     if (error) {
       setLoginError(error.message);
     } else if (data.user) {
-      await setUserId(data.user.id);
-      setUser(data.user);
+      // Get user_id from profiles table to match foreign key constraint
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('user_id')
+        .eq('user_id', data.user.id)
+        .single();
+      
+      if (profileError || !profile) {
+        setLoginError('Profile not found. Please contact support.');
+        console.error('Error getting profile:', profileError);
+      } else {
+        await setUserId(profile.user_id);
+        setUser(data.user);
+      }
     }
   };
 
@@ -76,6 +88,87 @@ function Popup() {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
     await updateTrackingState({ theme: newTheme });
+  };
+
+  const handleTransferUnproductiveTime = async () => {
+    const state = await getTrackingState();
+    if (!state.userId) {
+      console.error('No user ID found');
+      return;
+    }
+
+    const unproductiveSeconds = Math.floor((state.totalUnproductiveMs || 0) / 1000);
+    
+    if (unproductiveSeconds === 0) {
+      console.log('No unproductive time to transfer');
+      return;
+    }
+
+    try {
+      // Get current best_score from leaderboard_global
+      const { data: currentLeaderboard, error: fetchError } = await supabase
+        .from('leaderboard_global')
+        .select('user_id, best_score')
+        .eq('user_id', state.userId)
+        .single();
+
+      // If no entry exists, create one with the unproductive time as score
+      if (fetchError && fetchError.code === 'PGRST116') {
+        const { error: insertError } = await supabase
+          .from('leaderboard_global')
+          .insert({
+            user_id: state.userId,
+            best_score: unproductiveSeconds,
+            updated_at: new Date().toISOString(),
+          });
+
+        if (insertError) {
+          console.error('Error creating leaderboard entry:', insertError);
+        } else {
+          // Reset unproductive time
+          await updateTrackingState({
+            totalUnproductiveMs: 0,
+          });
+          console.log(`Successfully created leaderboard entry with score ${unproductiveSeconds} and reset unproductive time`);
+        }
+        return;
+      }
+
+      if (fetchError) {
+        console.error('Error fetching leaderboard:', fetchError);
+        return;
+      }
+
+      // Verify user_id matches
+      if (currentLeaderboard.user_id !== state.userId) {
+        console.error('User ID mismatch. Cannot update score.');
+        return;
+      }
+
+      // Increase best_score by unproductive time
+      const newScore = (currentLeaderboard.best_score || 0) + unproductiveSeconds;
+
+      // Update leaderboard_global
+      const { error: updateError } = await supabase
+        .from('leaderboard_global')
+        .update({
+          best_score: newScore,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', state.userId);
+
+      if (updateError) {
+        console.error('Error updating leaderboard:', updateError);
+      } else {
+        // Reset unproductive time to zero
+        await updateTrackingState({
+          totalUnproductiveMs: 0,
+        });
+        console.log(`Successfully transferred ${unproductiveSeconds}s to best_score (new score: ${newScore}) and reset unproductive time`);
+      }
+    } catch (error) {
+      console.error('Error transferring unproductive time:', error);
+    }
   };
 
   const formatTime = (ms: number): string => {
@@ -181,7 +274,6 @@ function Popup() {
   const unproductiveMs = trackingState?.totalUnproductiveMs || 0;
 
   // Color scheme: unproductive=green (good), productive=red (bad)
-  const productiveColor = '#dc3545'; // Red
   const productiveBg = '#f8d7da'; // Light red
   const productiveText = '#721c24'; // Dark red
   const unproductiveColor = '#28a745'; // Green
@@ -252,7 +344,7 @@ function Popup() {
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
         <div style={{ padding: '12px', backgroundColor: unproductiveBg, borderRadius: '4px' }}>
           <div style={{ fontSize: '11px', color: unproductiveText, marginBottom: '4px' }}>Unproductive Time</div>
           <div style={{ fontSize: '18px', fontWeight: 'bold', color: unproductiveText }}>
@@ -266,6 +358,23 @@ function Popup() {
           </div>
         </div>
       </div>
+
+      <button
+        onClick={handleTransferUnproductiveTime}
+        style={{
+          width: '100%',
+          padding: '10px',
+          fontSize: '14px',
+          backgroundColor: unproductiveColor,
+          color: 'white',
+          border: 'none',
+          borderRadius: '4px',
+          cursor: 'pointer',
+          fontWeight: '500',
+        }}
+      >
+        Transfer Unproductive Time to Best Score
+      </button>
     </div>
   );
 }

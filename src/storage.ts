@@ -11,6 +11,7 @@ export interface TrackingState {
   totalUnproductiveMs: number; // Total accumulated unproductive time
   userId: string | null;
   theme: 'light' | 'dark'; // Theme preference
+  lastLeaderboardUpdate: number; // Timestamp of last leaderboard update
 }
 
 const DEFAULT_STATE: TrackingState = {
@@ -22,6 +23,7 @@ const DEFAULT_STATE: TrackingState = {
   totalUnproductiveMs: 0,
   userId: null,
   theme: 'light',
+  lastLeaderboardUpdate: 0,
 };
 
 const STORAGE_KEY = 'trackingState';

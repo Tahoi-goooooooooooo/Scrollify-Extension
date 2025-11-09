@@ -6,9 +6,35 @@ import { supabase } from './supabaseClient';
 const PRODUCTIVE_TRIGGER_MS = 60000; // 60 seconds
 const UNPRODUCTIVE_BUFFER_MS = 10000; // 10 seconds
 const TICK_INTERVAL_MS = 1000; // 1 second
+const LEADERBOARD_UPDATE_INTERVAL_MS = 60000; // 1 minute
 
 let isIdle = false;
 let isWindowFocused = true;
+
+/**
+ * Get user_id from profiles table that matches auth user (required for foreign key constraint)
+ */
+async function getProfileUserId(authUserId: string): Promise<string | null> {
+  try {
+    // Query profiles table to get the user_id that matches the auth user
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('user_id')
+      .eq('user_id', authUserId)
+      .single();
+    
+    if (error) {
+      console.error('Error getting profile user_id:', error);
+      // If profile doesn't exist, return null (profile should be created by trigger/function)
+      return null;
+    }
+    
+    return profile?.user_id || null;
+  } catch (error) {
+    console.error('Error getting profile user_id:', error);
+    return null;
+  }
+}
 
 /**
  * Get the current active tab's URL
@@ -119,6 +145,54 @@ async function recordUnproductiveTime(ms: number, userId: string): Promise<void>
 }
 
 /**
+ * Update leaderboard_global with unproductive time (stored in best_score)
+ */
+async function updateLeaderboard(userId: string, totalUnproductiveMs: number): Promise<void> {
+  try {
+    // First verify the profile exists (required for foreign key constraint)
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('user_id')
+      .eq('user_id', userId)
+      .single();
+    
+    if (profileError || !profile) {
+      console.error('Profile not found for user_id:', userId, profileError);
+      return;
+    }
+    
+    const unproductiveSeconds = Math.floor(totalUnproductiveMs / 1000);
+    
+    // Upsert to leaderboard_global table (update if exists, insert if not)
+    // best_score stores unproductive time in seconds
+    const { error } = await supabase
+      .from('leaderboard_global')
+      .upsert({
+        user_id: userId,
+        best_score: unproductiveSeconds,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id',
+      });
+    
+    if (error) {
+      console.error('Error updating leaderboard_global:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+        userId: userId,
+        best_score: unproductiveSeconds
+      });
+    } else {
+      console.log(`Updated leaderboard_global: ${unproductiveSeconds}s unproductive time (best_score) for user ${userId}`);
+    }
+  } catch (error) {
+    console.error('Error updating leaderboard_global:', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
  * Main tick function - called every second
  */
 async function tick(): Promise<void> {
@@ -212,14 +286,45 @@ async function processTime(state: TrackingState, elapsed: number): Promise<void>
 }
 
 /**
+ * Check and update leaderboard if needed (every minute)
+ */
+async function checkAndUpdateLeaderboard(): Promise<void> {
+  const state = await getTrackingState();
+  const now = Date.now();
+  
+  if (!state.userId) {
+    return;
+  }
+  
+  // Check if it's time to update (every minute)
+  const timeSinceLastUpdate = now - (state.lastLeaderboardUpdate || 0);
+  
+  if (timeSinceLastUpdate >= LEADERBOARD_UPDATE_INTERVAL_MS) {
+    await updateLeaderboard(
+      state.userId,
+      state.totalUnproductiveMs || 0
+    );
+    await updateTrackingState({
+      lastLeaderboardUpdate: now,
+    });
+  }
+}
+
+/**
  * Initialize tracking
  */
 async function initializeTracking(): Promise<void> {
   // Check for existing session
   const { data: { session } } = await supabase.auth.getSession();
   if (session?.user) {
-    await setUserId(session.user.id);
-    console.log('Restored session for user:', session.user.email);
+    // Get user_id from profiles table to match foreign key constraint
+    const profileUserId = await getProfileUserId(session.user.id);
+    if (profileUserId) {
+      await setUserId(profileUserId);
+      console.log('Restored session for user:', session.user.email);
+    } else {
+      console.warn('Profile not found for auth user, cannot set userId');
+    }
   }
 
   // Get initial domain
@@ -233,8 +338,14 @@ async function initializeTracking(): Promise<void> {
     tick().catch(console.error);
   }, TICK_INTERVAL_MS);
   
+  // Set up interval for leaderboard updates (every minute)
+  setInterval(() => {
+    checkAndUpdateLeaderboard().catch(console.error);
+  }, LEADERBOARD_UPDATE_INTERVAL_MS);
+  
   // Also trigger immediately
   tick().catch(console.error);
+  checkAndUpdateLeaderboard().catch(console.error);
 }
 
 // Event listeners
@@ -281,8 +392,14 @@ chrome.idle.onStateChanged.addListener((newState) => {
 // Listen for auth state changes
 supabase.auth.onAuthStateChange(async (event, session) => {
   if (event === 'SIGNED_IN' && session?.user) {
-    await setUserId(session.user.id);
-    console.log('User signed in:', session.user.email);
+    // Get user_id from profiles table to match foreign key constraint
+    const profileUserId = await getProfileUserId(session.user.id);
+    if (profileUserId) {
+      await setUserId(profileUserId);
+      console.log('User signed in:', session.user.email);
+    } else {
+      console.warn('Profile not found for auth user, cannot set userId');
+    }
   } else if (event === 'SIGNED_OUT') {
     await setUserId(null);
     await updateTrackingState({
@@ -291,6 +408,7 @@ supabase.auth.onAuthStateChange(async (event, session) => {
       unproductiveMsBuffer: 0,
       totalProductiveMs: 0,
       totalUnproductiveMs: 0,
+      lastLeaderboardUpdate: 0,
     });
     console.log('User signed out');
   }

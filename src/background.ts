@@ -75,29 +75,48 @@ async function updateDomain(newDomain: string | null): Promise<void> {
     return; // No change
   }
 
-  // Flush accumulated time for the previous domain
+  // Handle domain switch
+  const previousClassification = classifyDomain(state.currentDomain);
+  const newClassification = classifyDomain(newDomain);
+  
+  // Record database events for previous domain (if needed)
   if (state.currentDomain && state.userId) {
-    const previousClassification = classifyDomain(state.currentDomain);
-    
-    if (previousClassification === 'productive' && state.consecutiveProductiveMs > 0) {
-      // If we were productive, check if we hit the trigger
-      if (state.consecutiveProductiveMs >= PRODUCTIVE_TRIGGER_MS) {
-        await recordProductiveTrigger(state.currentDomain, state.consecutiveProductiveMs, state.userId);
-      }
-    } else if (previousClassification === 'unproductive' && state.unproductiveMsBuffer > 0) {
-      // Flush unproductive buffer
+    // Record productive trigger at 60s for database tracking (but don't reset counter)
+    if (previousClassification === 'productive' && state.consecutiveProductiveMs >= PRODUCTIVE_TRIGGER_MS) {
+      // Only record once per session to avoid duplicates
+      await recordProductiveTrigger(state.currentDomain, state.consecutiveProductiveMs, state.userId);
+    } else if (previousClassification === 'unproductive' && state.unproductiveMsBuffer >= UNPRODUCTIVE_BUFFER_MS) {
+      // Flush unproductive buffer to database
       await recordUnproductiveTime(state.unproductiveMsBuffer, state.userId);
     }
   }
 
-  // Update domain and reset consecutive counters (but keep total accumulated time)
-  const newClassification = classifyDomain(newDomain);
+  // IMPORTANT: Do NOT reset productive time counter when switching between productive domains
+  // Only reset when:
+  // 1. Switching FROM productive TO unproductive (reset productive counter)
+  // 2. Switching FROM unproductive TO productive (reset unproductive buffer)
+  // 3. Call is triggered (handled in triggerAICall)
+  // 4. Update Leaderboard button is pressed (handled in popup)
+  
+  // Determine what to reset
+  const shouldResetProductive = previousClassification === 'productive' && newClassification === 'unproductive';
+  const shouldResetUnproductive = previousClassification === 'unproductive' && newClassification === 'productive';
+  
   await updateTrackingState({
     currentDomain: newDomain,
     lastTick: Date.now(),
-    consecutiveProductiveMs: newClassification === 'productive' ? 0 : state.consecutiveProductiveMs,
-    unproductiveMsBuffer: newClassification === 'unproductive' ? 0 : state.unproductiveMsBuffer,
+    consecutiveProductiveMs: shouldResetProductive ? 0 : state.consecutiveProductiveMs,
+    unproductiveMsBuffer: shouldResetUnproductive ? 0 : state.unproductiveMsBuffer,
   });
+  
+  // Log domain switch for debugging
+  if (shouldResetProductive) {
+    console.log('🔄 Switched from productive to unproductive domain, reset productive counter');
+  } else if (shouldResetUnproductive) {
+    console.log('🔄 Switched from unproductive to productive domain, reset unproductive buffer');
+  } else if (previousClassification === 'productive' && newClassification === 'productive') {
+    console.log('✅ Switched between productive domains, keeping productive counter running');
+  }
 }
 
 /**
@@ -244,14 +263,24 @@ async function triggerAICall(): Promise<void> {
     }
 
     const result = await response.json();
-    console.log('AI agent call initiated:', result.sid);
+    console.log('✅ AI agent call successfully initiated!');
+    console.log('   Call SID:', result.sid);
+    console.log('   To:', toPhoneNumber);
     
-    // Update last call trigger time
+    // Reset productive time to 0 after call is initiated
     await updateTrackingState({
       lastCallTriggerTime: now,
+      consecutiveProductiveMs: 0,
+      totalProductiveMs: 0,
     });
+    
+    console.log('✅ Productive time reset to 0 after call initiation');
+    console.log('   Counter will start accumulating again for the next cycle');
   } catch (error) {
-    console.error('Error triggering AI call:', error);
+    console.error('❌ Error triggering AI call:', error);
+    if (error instanceof Error) {
+      console.error('   Error message:', error.message);
+    }
   }
 }
 
@@ -305,23 +334,49 @@ async function updateLeaderboard(userId: string, totalUnproductiveMs: number): P
 
 /**
  * Main tick function - called every second
+ * Uses chrome.alarms for reliability (survives service worker suspension)
  */
 async function tick(): Promise<void> {
-  // Skip if idle or window not focused
-  if (isIdle || !isWindowFocused) {
-    await updateTrackingState({
-      lastTick: Date.now(),
-    });
-    return;
-  }
-
   const state = await getTrackingState();
   const now = Date.now();
   const elapsed = now - state.lastTick;
 
-  if (elapsed <= 0) {
+  // Handle service worker wake-up: if elapsed time is very large, the service worker was suspended
+  // Cap the elapsed time to prevent huge jumps (max 10 seconds)
+  // This allows the counter to continue even if service worker was suspended briefly
+  const maxElapsed = 10000; // 10 seconds max gap
+  const actualElapsed = elapsed > maxElapsed ? maxElapsed : elapsed;
+  
+  if (actualElapsed <= 0) {
     await updateTrackingState({ lastTick: now });
     return;
+  }
+  
+  // Log if service worker was suspended
+  if (elapsed > maxElapsed) {
+    console.log(`⚠️ Service worker was suspended for ${Math.floor(elapsed / 1000)}s, continuing tracking with capped elapsed time`);
+  }
+
+  // IMPORTANT: Continue tracking even if window is not focused
+  // This ensures the counter doesn't stop randomly when user switches windows
+  // Only pause if user is idle AND window is not focused (both conditions)
+  // For productive time tracking, we want it to continue as long as user is active
+  const shouldPause = isIdle && !isWindowFocused;
+  
+  if (shouldPause) {
+    // Only pause if BOTH conditions are met: idle AND not focused
+    // This prevents the counter from stopping when user just switches windows
+    console.log('⏸️ Pausing tracking: user is idle and window is not focused');
+    await updateTrackingState({
+      lastTick: now,
+    });
+    return;
+  }
+  
+  // Log tracking status for debugging
+  if (!isWindowFocused && !isIdle) {
+    // User is active but window not focused - continue tracking
+    // This is normal when user switches between windows
   }
 
   // Get current active tab
@@ -333,9 +388,9 @@ async function tick(): Promise<void> {
     await updateDomain(currentDomain);
     // Get updated state after domain change
     const updatedState = await getTrackingState();
-    await processTime(updatedState, elapsed);
+    await processTime(updatedState, actualElapsed);
   } else {
-    await processTime(state, elapsed);
+    await processTime(state, actualElapsed);
   }
 }
 
@@ -355,28 +410,36 @@ async function processTime(state: TrackingState, elapsed: number): Promise<void>
     const newConsecutive = state.consecutiveProductiveMs + elapsed;
     const newTotal = (state.totalProductiveMs || 0) + elapsed;
     
-    // Check if we hit the AI call trigger threshold (2 minutes)
-    if (newConsecutive >= AI_CALL_TRIGGER_MS && (newConsecutive - elapsed) < AI_CALL_TRIGGER_MS) {
+    // Check if we hit the AI call trigger threshold (2 minutes = 120 seconds)
+    // Only trigger if we just crossed the threshold (to avoid multiple triggers)
+    const previousConsecutive = state.consecutiveProductiveMs;
+    const justCrossedThreshold = newConsecutive >= AI_CALL_TRIGGER_MS && previousConsecutive < AI_CALL_TRIGGER_MS;
+    
+    if (justCrossedThreshold) {
       // Trigger AI agent call when productive time hits 2 minutes
-      console.log('Productive time reached 2 minutes, triggering AI agent call');
+      const productiveSeconds = Math.floor(newConsecutive / 1000);
+      console.log(`✅ Productive time reached ${productiveSeconds} seconds (2 minutes), triggering AI agent call`);
       await triggerAICall();
+      // Note: triggerAICall will reset productive time after call is initiated
     }
     
-    // Check if we hit the productive trigger threshold
-    if (newConsecutive >= PRODUCTIVE_TRIGGER_MS) {
+    // IMPORTANT: Do NOT reset consecutiveProductiveMs automatically
+    // It should only reset when:
+    // 1. Call is initiated (handled in triggerAICall)
+    // 2. Update Leaderboard button is pressed (handled in popup)
+    // 3. User switches to unproductive domain (handled in updateDomain)
+    
+    // Still record productive trigger at 60s for database tracking, but don't reset counter
+    if (newConsecutive >= PRODUCTIVE_TRIGGER_MS && previousConsecutive < PRODUCTIVE_TRIGGER_MS) {
       await recordProductiveTrigger(state.currentDomain, newConsecutive, userId);
-      await updateTrackingState({
-        consecutiveProductiveMs: 0,
-        totalProductiveMs: newTotal,
-        lastTick: Date.now(),
-      });
-    } else {
-      await updateTrackingState({
-        consecutiveProductiveMs: newConsecutive,
-        totalProductiveMs: newTotal,
-        lastTick: Date.now(),
-      });
     }
+    
+    // Always update the counter and total (no reset)
+    await updateTrackingState({
+      consecutiveProductiveMs: newConsecutive,
+      totalProductiveMs: newTotal,
+      lastTick: Date.now(),
+    });
   } else if (classification === 'unproductive') {
     const newBuffer = state.unproductiveMsBuffer + elapsed;
     const newTotal = (state.totalUnproductiveMs || 0) + elapsed;
@@ -450,20 +513,38 @@ async function initializeTracking(): Promise<void> {
   await updateDomain(currentDomain);
 
   // Set up interval for periodic ticks (every second)
-  // Note: Service workers can be suspended, but setInterval works while active
+  // Note: Service workers can be suspended by Chrome, but setInterval will resume when service worker wakes up
+  // We handle service worker suspension in the tick() function by checking elapsed time
+  // If service worker was suspended, we cap the elapsed time to continue tracking smoothly
   setInterval(() => {
-    tick().catch(console.error);
+    tick().catch((error) => {
+      console.error('Error in tick:', error);
+    });
   }, TICK_INTERVAL_MS);
   
-  // Set up interval for leaderboard updates (every minute)
-  setInterval(() => {
-    checkAndUpdateLeaderboard().catch(console.error);
-  }, LEADERBOARD_UPDATE_INTERVAL_MS);
+  // Set up alarm for leaderboard updates (every minute)
+  // chrome.alarms works well for longer intervals and survives service worker suspension
+  chrome.alarms.create('leaderboardUpdate', {
+    periodInMinutes: LEADERBOARD_UPDATE_INTERVAL_MS / 60000,
+    delayInMinutes: LEADERBOARD_UPDATE_INTERVAL_MS / 60000,
+  });
   
-  // Also trigger immediately
+  // Also trigger immediately to start tracking right away
   tick().catch(console.error);
   checkAndUpdateLeaderboard().catch(console.error);
+  
+  console.log('✅ Tracking initialized');
+  console.log('   - Counter will continue even when window loses focus');
+  console.log('   - Counter only pauses if user is idle AND window is not focused');
+  console.log('   - Service worker suspension is handled automatically');
 }
+
+// Alarm listener for leaderboard updates (survives service worker suspension)
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'leaderboardUpdate') {
+    checkAndUpdateLeaderboard().catch(console.error);
+  }
+});
 
 // Event listeners
 
@@ -487,8 +568,10 @@ chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo, tab) => {
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     isWindowFocused = false;
+    console.log('⚠️ Window lost focus, but tracking continues (counter will NOT stop)');
   } else {
     isWindowFocused = true;
+    console.log('✅ Window gained focus, tracking active');
     // Update domain when window gains focus
     const currentUrl = await getActiveTabUrl();
     const currentDomain = extractDomain(currentUrl ?? undefined);
@@ -499,9 +582,9 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
 chrome.idle.onStateChanged.addListener((newState) => {
   isIdle = newState === 'idle' || newState === 'locked';
   if (isIdle) {
-    console.log('User is idle/locked, pausing tracking');
+    console.log('⚠️ User is idle/locked, but tracking continues (counter will only pause if window is also not focused)');
   } else {
-    console.log('User is active, resuming tracking');
+    console.log('✅ User is active, tracking continues');
   }
 });
 

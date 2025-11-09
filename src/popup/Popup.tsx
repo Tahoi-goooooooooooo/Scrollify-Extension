@@ -219,14 +219,10 @@ function Popup() {
     }
 
     const unproductiveSeconds = Math.floor((state.totalUnproductiveMs || 0) / 1000);
-    const productiveSeconds = Math.floor((state.totalProductiveMs || 0) / 1000);
     
-    // Calculate net change: unproductive time adds, productive time subtracts
-    const netChange = unproductiveSeconds - productiveSeconds;
-    
-    // If both are zero, nothing to do
-    if (unproductiveSeconds === 0 && productiveSeconds === 0) {
-      console.log('No time to transfer');
+    // If unproductive time is zero, nothing to do
+    if (unproductiveSeconds === 0) {
+      console.log('No unproductive time to transfer');
       return;
     }
 
@@ -238,9 +234,9 @@ function Popup() {
         .eq('user_id', state.userId)
         .single();
 
-      // If no entry exists, create one with the net change as score
+      // If no entry exists, create one with the unproductive time as score
       if (fetchError && fetchError.code === 'PGRST116') {
-        const initialScore = Math.max(0, netChange); // Ensure score doesn't go below 0
+        const initialScore = unproductiveSeconds;
         
         const { error: insertError } = await supabase
           .from('leaderboard_global')
@@ -253,10 +249,11 @@ function Popup() {
         if (insertError) {
           console.error('Error creating leaderboard entry:', insertError);
         } else {
-          // Reset both times
+          // Reset both times and consecutive counter
           await updateTrackingState({
             totalUnproductiveMs: 0,
             totalProductiveMs: 0,
+            consecutiveProductiveMs: 0,
           });
           console.log(`Successfully created leaderboard entry with score ${initialScore} and reset times`);
         }
@@ -274,9 +271,8 @@ function Popup() {
         return;
       }
 
-      // Calculate new score: add unproductive time, subtract productive time
-      // Ensure score doesn't go below 0
-      const newScore = Math.max(0, (currentLeaderboard.best_score || 0) + netChange);
+      // Calculate new score: add unproductive time only (no subtraction of productive time)
+      const newScore = (currentLeaderboard.best_score || 0) + unproductiveSeconds;
 
       // Update leaderboard_global
       const { error: updateError } = await supabase
@@ -291,11 +287,13 @@ function Popup() {
         console.error('Error updating leaderboard:', updateError);
       } else {
         // Reset both unproductive and productive time to zero
+        // Also reset consecutiveProductiveMs so the counter starts fresh
         await updateTrackingState({
           totalUnproductiveMs: 0,
           totalProductiveMs: 0,
+          consecutiveProductiveMs: 0,
         });
-        console.log(`Successfully updated best_score: +${unproductiveSeconds}s -${productiveSeconds}s = ${netChange >= 0 ? '+' : ''}${netChange} (new score: ${newScore}) and reset both times to zero`);
+        console.log(`Successfully updated best_score: +${unproductiveSeconds}s (new score: ${newScore}) and reset both times to zero`);
       }
     } catch (error) {
       console.error('Error transferring time:', error);

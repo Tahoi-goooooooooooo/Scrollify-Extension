@@ -1,12 +1,15 @@
 import { classifyDomain, extractDomain } from './classify';
 import { getTrackingState, updateTrackingState, setUserId, type TrackingState } from './storage';
 import { supabase } from './supabaseClient';
+import { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, USER_PHONE_NUMBER, WEBHOOK_URL } from './env';
 
 // Constants
 const PRODUCTIVE_TRIGGER_MS = 60000; // 60 seconds
 const UNPRODUCTIVE_BUFFER_MS = 10000; // 10 seconds
 const TICK_INTERVAL_MS = 1000; // 1 second
 const LEADERBOARD_UPDATE_INTERVAL_MS = 60000; // 1 minute
+const AI_CALL_TRIGGER_MS = 120000; // 2 minutes (120 seconds) - trigger AI agent call
+const AI_CALL_COOLDOWN_MS = 300000; // 5 minutes cooldown between calls
 
 let isIdle = false;
 let isWindowFocused = true;
@@ -145,6 +148,72 @@ async function recordUnproductiveTime(ms: number, userId: string): Promise<void>
 }
 
 /**
+ * Trigger AI agent call using Twilio
+ * Note: This requires a webhook URL for Deepgram AI agent integration
+ * For now, this initiates the call. The webhook should be configured in Twilio console.
+ */
+async function triggerAICall(): Promise<void> {
+  try {
+    const state = await getTrackingState();
+    const now = Date.now();
+    
+    // Check cooldown period (prevent multiple calls within cooldown)
+    if (state.lastCallTriggerTime > 0 && (now - state.lastCallTriggerTime) < AI_CALL_COOLDOWN_MS) {
+      console.log('AI call cooldown active, skipping call');
+      return;
+    }
+
+    // Format phone number with country code if needed
+    const toPhoneNumber = USER_PHONE_NUMBER.startsWith('+') 
+      ? USER_PHONE_NUMBER 
+      : `+1${USER_PHONE_NUMBER}`;
+
+    // Create Basic Auth header for Twilio
+    const credentials = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
+    
+    // Twilio API endpoint to create a call
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls.json`;
+    
+    // Webhook URL for handling the call
+    // IMPORTANT: Replace this with your deployed webhook server URL
+    // See WEBHOOK_SETUP.md for setup instructions
+    const webhookUrl = WEBHOOK_URL;
+    
+    // Create form data for Twilio API
+    const formData = new URLSearchParams();
+    formData.append('From', TWILIO_PHONE_NUMBER);
+    formData.append('To', toPhoneNumber);
+    formData.append('Url', webhookUrl);
+    formData.append('Method', 'POST');
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formData.toString(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error initiating Twilio call:', errorText);
+      return;
+    }
+
+    const result = await response.json();
+    console.log('AI agent call initiated:', result.sid);
+    
+    // Update last call trigger time
+    await updateTrackingState({
+      lastCallTriggerTime: now,
+    });
+  } catch (error) {
+    console.error('Error triggering AI call:', error);
+  }
+}
+
+/**
  * Update leaderboard_global with unproductive time (stored in best_score)
  */
 async function updateLeaderboard(userId: string, totalUnproductiveMs: number): Promise<void> {
@@ -244,6 +313,13 @@ async function processTime(state: TrackingState, elapsed: number): Promise<void>
   if (classification === 'productive') {
     const newConsecutive = state.consecutiveProductiveMs + elapsed;
     const newTotal = (state.totalProductiveMs || 0) + elapsed;
+    
+    // Check if we hit the AI call trigger threshold (2 minutes)
+    if (newConsecutive >= AI_CALL_TRIGGER_MS && (newConsecutive - elapsed) < AI_CALL_TRIGGER_MS) {
+      // Trigger AI agent call when productive time hits 2 minutes
+      console.log('Productive time reached 2 minutes, triggering AI agent call');
+      await triggerAICall();
+    }
     
     // Check if we hit the productive trigger threshold
     if (newConsecutive >= PRODUCTIVE_TRIGGER_MS) {
@@ -409,6 +485,7 @@ supabase.auth.onAuthStateChange(async (event, session) => {
       totalProductiveMs: 0,
       totalUnproductiveMs: 0,
       lastLeaderboardUpdate: 0,
+      lastCallTriggerTime: 0,
     });
     console.log('User signed out');
   }

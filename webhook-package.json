@@ -1,0 +1,22 @@
+{
+  "name": "scrollify-webhook-server",
+  "version": "1.0.0",
+  "description": "Webhook server for Twilio + Deepgram AI Agent integration",
+  "main": "webhook-server-advanced.js",
+  "scripts": {
+    "start": "node webhook-server-advanced.js",
+    "dev": "nodemon webhook-server-advanced.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "twilio": "^4.19.0",
+    "@deepgram/sdk": "^3.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+

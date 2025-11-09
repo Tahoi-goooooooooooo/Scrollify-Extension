@@ -12,6 +12,7 @@ export interface TrackingState {
   userId: string | null;
   theme: 'light' | 'dark'; // Theme preference
   lastLeaderboardUpdate: number; // Timestamp of last leaderboard update
+  lastCallTriggerTime: number; // Timestamp of last AI agent call trigger
 }
 
 const DEFAULT_STATE: TrackingState = {
@@ -24,6 +25,7 @@ const DEFAULT_STATE: TrackingState = {
   userId: null,
   theme: 'light',
   lastLeaderboardUpdate: 0,
+  lastCallTriggerTime: 0,
 };
 
 const STORAGE_KEY = 'trackingState';

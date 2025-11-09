@@ -158,26 +158,23 @@ async function recordUnproductiveTime(ms: number, userId: string): Promise<void>
  */
 async function triggerAICall(): Promise<void> {
   try {
-    console.log('📞 triggerAICall() called - starting call initiation process...');
-    const state = await getTrackingState();
-    const now = Date.now();
+    console.log('📞 triggerAICall() called - starting call initiation process (using test call logic)...');
     
-    // Check cooldown period (prevent multiple calls within cooldown)
-    if (state.lastCallTriggerTime > 0 && (now - state.lastCallTriggerTime) < AI_CALL_COOLDOWN_MS) {
-      const cooldownRemaining = Math.ceil((AI_CALL_COOLDOWN_MS - (now - state.lastCallTriggerTime)) / 1000);
-      console.log(`⏸️ AI call cooldown active (${cooldownRemaining}s remaining), skipping call`);
-      console.log(`   Last call time: ${new Date(state.lastCallTriggerTime).toISOString()}`);
-      console.log(`   Current time: ${new Date(now).toISOString()}`);
-      console.log(`   Cooldown period: ${AI_CALL_COOLDOWN_MS / 1000}s`);
+    // Validate credentials (same as test button)
+    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
+      console.error('❌ Twilio credentials missing. Cannot initiate call.');
       return;
     }
-    
-    console.log('✅ Cooldown check passed, proceeding with call...');
 
-    // Validate user is logged in
+    if (!WEBHOOK_URL || WEBHOOK_URL.includes('your-webhook-server.com')) {
+      console.error('❌ Webhook URL not configured. Please set VITE_WEBHOOK_URL in .env file.');
+      return;
+    }
+
+    // Get current user_id from tracking state (same as test button)
+    const state = await getTrackingState();
     if (!state.userId) {
       console.error('❌ No user ID found. Cannot initiate call.');
-      console.error('   State:', JSON.stringify(state, null, 2));
       return;
     }
     
@@ -192,16 +189,12 @@ async function triggerAICall(): Promise<void> {
 
     if (profileError || !profile) {
       console.error('❌ Error fetching profile:', profileError);
-      console.error('   Profile data:', profile);
       return;
     }
-    
-    console.log('✅ Profile fetched successfully');
 
     const dadsNumber = profile.dads_number;
     if (!dadsNumber || !dadsNumber.trim()) {
       console.error('❌ Dad\'s number not found in profile. Cannot initiate call.');
-      console.error('   Profile:', JSON.stringify(profile, null, 2));
       return;
     }
     
@@ -217,26 +210,7 @@ async function triggerAICall(): Promise<void> {
       ? `+${cleanedPhone}`
       : `+1${cleanedPhone}`;
     
-    console.log('Calling dad\'s number:', toPhoneNumber, '(original:', dadsNumber, ')');
-
-    // Validate Twilio credentials
-    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
-      console.error('❌ Twilio credentials missing. Cannot initiate call.');
-      console.error('   TWILIO_ACCOUNT_SID:', TWILIO_ACCOUNT_SID ? 'SET' : 'MISSING');
-      console.error('   TWILIO_AUTH_TOKEN:', TWILIO_AUTH_TOKEN ? 'SET' : 'MISSING');
-      console.error('   TWILIO_PHONE_NUMBER:', TWILIO_PHONE_NUMBER ? 'SET' : 'MISSING');
-      return;
-    }
-    
-    console.log('✅ Twilio credentials validated');
-
-    if (!WEBHOOK_URL || WEBHOOK_URL.includes('your-webhook-server.com')) {
-      console.error('❌ Webhook URL not configured. Please set VITE_WEBHOOK_URL in .env file.');
-      console.error('   WEBHOOK_URL:', WEBHOOK_URL);
-      return;
-    }
-    
-    console.log('✅ Webhook URL validated:', WEBHOOK_URL);
+    console.log('📞 Calling dad\'s number:', toPhoneNumber, '(original:', dadsNumber, ')');
 
     // Create Basic Auth header for Twilio
     const credentials = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
@@ -250,6 +224,12 @@ async function triggerAICall(): Promise<void> {
     formData.append('To', toPhoneNumber);
     formData.append('Url', WEBHOOK_URL);
     formData.append('Method', 'POST');
+
+    console.log('📞 Initiating automatic call (same as test button)...', {
+      from: TWILIO_PHONE_NUMBER,
+      to: toPhoneNumber,
+      webhook: WEBHOOK_URL
+    });
 
     console.log('Twilio API Request:', {
       url: url,
@@ -287,22 +267,21 @@ async function triggerAICall(): Promise<void> {
     }
 
     const result = await response.json();
-    console.log('✅ AI agent call successfully initiated!');
+    console.log('✅✅✅ AI agent call successfully initiated! ✅✅✅');
     console.log('   Call SID:', result.sid);
-    console.log('   To:', toPhoneNumber);
+    console.log('   Calling:', toPhoneNumber);
+    console.log('   This is the same logic as the test button - call should work!');
     
-    // Reset productive time to 0 after call is initiated
+    // Reset productive time to 0 after call is initiated (same as test button behavior)
+    const now = Date.now();
     await updateTrackingState({
       lastCallTriggerTime: now,
       consecutiveProductiveMs: 0,
       totalProductiveMs: 0,
     });
     
-    console.log('✅✅✅ CALL SUCCESSFULLY INITIATED AND PRODUCTIVE TIME RESET ✅✅✅');
-    console.log('   Call SID:', result.sid);
-    console.log('   To:', toPhoneNumber);
-    console.log('   Productive time reset to 0');
-    console.log('   Counter will start accumulating again for the next cycle');
+    console.log('✅ Productive time reset to 0');
+    console.log('✅ Counter will start accumulating again for the next cycle');
   } catch (error) {
     console.error('❌❌❌ ERROR TRIGGERING AI CALL ❌❌❌');
     console.error('   Error:', error);

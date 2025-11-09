@@ -47,7 +47,7 @@ module.exports = async (req, res) => {
     gather.say({
       voice: 'alice',
       language: 'en-US'
-    }, 'I\'d love to chat with you. What\'s on your mind?');
+    }, 'Let\'s go on a date and talk about your son gooning');
     
     // If no input, end the call
     twiml.say({

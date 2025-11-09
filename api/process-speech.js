@@ -132,7 +132,7 @@ async function generateAuraResponse(userTranscript) {
     // which provides context-aware, intelligent responses
     
     // Simplified conversational response using Deepgram's understanding
-    const response = `I understand you said: ${userTranscript}. That's interesting! Tell me more about that.`;
+    const response = `I understand you said: ${userTranscript}. That's interesting! I want to know more. Tell me more about that.`;
     
     return response;
   } catch (error) {

@@ -1,7 +1,7 @@
 import { classifyDomain, extractDomain } from './classify';
 import { getTrackingState, updateTrackingState, setUserId, type TrackingState } from './storage';
 import { supabase } from './supabaseClient';
-import { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, USER_PHONE_NUMBER, WEBHOOK_URL } from './env';
+import { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, WEBHOOK_URL } from './env';
 
 // Constants
 const PRODUCTIVE_TRIGGER_MS = 60000; // 60 seconds
@@ -35,20 +35,6 @@ async function getProfileUserId(authUserId: string): Promise<string | null> {
     return profile?.user_id || null;
   } catch (error) {
     console.error('Error getting profile user_id:', error);
-    return null;
-  }
-}
-
-/**
- * Get the current active tab's URL
- */
-async function getCurrentTabUrl(): Promise<string | null> {
-  try {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tabs.length === 0) return null;
-    const tab = tabs[0];
-    return tab.url || null;
-  } catch {
     return null;
   }
 }
@@ -149,8 +135,7 @@ async function recordUnproductiveTime(ms: number, userId: string): Promise<void>
 
 /**
  * Trigger AI agent call using Twilio
- * Note: This requires a webhook URL for Deepgram AI agent integration
- * For now, this initiates the call. The webhook should be configured in Twilio console.
+ * Fetches dad's number from profiles table and initiates call with Deepgram AI agent
  */
 async function triggerAICall(): Promise<void> {
   try {
@@ -163,10 +148,52 @@ async function triggerAICall(): Promise<void> {
       return;
     }
 
+    // Validate user is logged in
+    if (!state.userId) {
+      console.error('No user ID found. Cannot initiate call.');
+      return;
+    }
+
+    // Fetch dad's number from profiles table using user_id
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('dads_number')
+      .eq('user_id', state.userId)
+      .single();
+
+    if (profileError || !profile) {
+      console.error('Error fetching profile:', profileError);
+      return;
+    }
+
+    const dadsNumber = profile.dads_number;
+    if (!dadsNumber || !dadsNumber.trim()) {
+      console.error('Dad\'s number not found in profile. Cannot initiate call.');
+      return;
+    }
+
+    // Clean and format phone number
+    const cleanedPhone = dadsNumber.trim().replace(/[\s\-\(\)]/g, '');
+    
     // Format phone number with country code if needed
-    const toPhoneNumber = USER_PHONE_NUMBER.startsWith('+') 
-      ? USER_PHONE_NUMBER 
-      : `+1${USER_PHONE_NUMBER}`;
+    const toPhoneNumber = cleanedPhone.startsWith('+') 
+      ? cleanedPhone 
+      : cleanedPhone.startsWith('1') && cleanedPhone.length === 11
+      ? `+${cleanedPhone}`
+      : `+1${cleanedPhone}`;
+    
+    console.log('Calling dad\'s number:', toPhoneNumber, '(original:', dadsNumber, ')');
+
+    // Validate Twilio credentials
+    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
+      console.error('Twilio credentials missing. Cannot initiate call.');
+      return;
+    }
+
+    if (!WEBHOOK_URL || WEBHOOK_URL.includes('your-webhook-server.com')) {
+      console.error('Webhook URL not configured. Please set VITE_WEBHOOK_URL in .env file.');
+      return;
+    }
 
     // Create Basic Auth header for Twilio
     const credentials = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
@@ -174,17 +201,21 @@ async function triggerAICall(): Promise<void> {
     // Twilio API endpoint to create a call
     const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls.json`;
     
-    // Webhook URL for handling the call
-    // IMPORTANT: Replace this with your deployed webhook server URL
-    // See WEBHOOK_SETUP.md for setup instructions
-    const webhookUrl = WEBHOOK_URL;
-    
     // Create form data for Twilio API
     const formData = new URLSearchParams();
     formData.append('From', TWILIO_PHONE_NUMBER);
     formData.append('To', toPhoneNumber);
-    formData.append('Url', webhookUrl);
+    formData.append('Url', WEBHOOK_URL);
     formData.append('Method', 'POST');
+
+    console.log('Twilio API Request:', {
+      url: url,
+      accountSid: TWILIO_ACCOUNT_SID ? `${TWILIO_ACCOUNT_SID.substring(0, 10)}...` : 'MISSING',
+      authToken: TWILIO_AUTH_TOKEN ? `${TWILIO_AUTH_TOKEN.substring(0, 10)}...` : 'MISSING',
+      from: TWILIO_PHONE_NUMBER,
+      to: toPhoneNumber,
+      webhook: WEBHOOK_URL
+    });
 
     const response = await fetch(url, {
       method: 'POST',
@@ -197,7 +228,18 @@ async function triggerAICall(): Promise<void> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Error initiating Twilio call:', errorText);
+      console.error('Twilio API Error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText.substring(0, 500)
+      });
+      
+      // Check if it's an authentication error
+      if (response.status === 401 || response.status === 403) {
+        console.error('Twilio authentication failed. Please check your Twilio credentials in the .env file and rebuild the extension.');
+      } else if (errorText.includes('html') || errorText.includes('login')) {
+        console.error('Twilio authentication failed. The credentials may be incorrect. Please verify your Twilio Account SID and Auth Token.');
+      }
       return;
     }
 
@@ -267,7 +309,6 @@ async function updateLeaderboard(userId: string, totalUnproductiveMs: number): P
 async function tick(): Promise<void> {
   // Skip if idle or window not focused
   if (isIdle || !isWindowFocused) {
-    const state = await getTrackingState();
     await updateTrackingState({
       lastTick: Date.now(),
     });
@@ -285,7 +326,7 @@ async function tick(): Promise<void> {
 
   // Get current active tab
   const currentUrl = await getActiveTabUrl();
-  const currentDomain = extractDomain(currentUrl);
+  const currentDomain = extractDomain(currentUrl ?? undefined);
 
   // Update domain if changed
   if (currentDomain !== state.currentDomain) {
@@ -405,7 +446,7 @@ async function initializeTracking(): Promise<void> {
 
   // Get initial domain
   const currentUrl = await getActiveTabUrl();
-  const currentDomain = extractDomain(currentUrl);
+  const currentDomain = extractDomain(currentUrl ?? undefined);
   await updateDomain(currentDomain);
 
   // Set up interval for periodic ticks (every second)
@@ -428,14 +469,13 @@ async function initializeTracking(): Promise<void> {
 
 chrome.tabs.onActivated.addListener(async () => {
   const currentUrl = await getActiveTabUrl();
-  const currentDomain = extractDomain(currentUrl);
+  const currentDomain = extractDomain(currentUrl ?? undefined);
   await updateDomain(currentDomain);
 });
 
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url) {
     const currentDomain = extractDomain(tab.url);
-    const state = await getTrackingState();
     // Only update if this is the active tab
     const activeUrl = await getActiveTabUrl();
     if (activeUrl === tab.url) {
@@ -451,7 +491,7 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
     isWindowFocused = true;
     // Update domain when window gains focus
     const currentUrl = await getActiveTabUrl();
-    const currentDomain = extractDomain(currentUrl);
+    const currentDomain = extractDomain(currentUrl ?? undefined);
     await updateDomain(currentDomain);
   }
 });

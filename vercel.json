@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "functions": {
+    "api/twilio-voice.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "api/process-speech.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  },
+  "env": {
+    "DEEPGRAM_API_KEY": "fbc61c49-4226-4213-9439-0590a90db262"
+  }
+}
+

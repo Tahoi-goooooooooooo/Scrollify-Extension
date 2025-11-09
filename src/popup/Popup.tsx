@@ -165,6 +165,15 @@ function Popup() {
         webhook: WEBHOOK_URL
       });
 
+      console.log('Twilio API Request:', {
+        url: url,
+        accountSid: TWILIO_ACCOUNT_SID ? `${TWILIO_ACCOUNT_SID.substring(0, 10)}...` : 'MISSING',
+        authToken: TWILIO_AUTH_TOKEN ? `${TWILIO_AUTH_TOKEN.substring(0, 10)}...` : 'MISSING',
+        from: TWILIO_PHONE_NUMBER,
+        to: toPhoneNumber,
+        webhook: WEBHOOK_URL
+      });
+
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -176,8 +185,20 @@ function Popup() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Error initiating Twilio call:', errorText);
-        alert(`Error: ${errorText}`);
+        console.error('Twilio API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
+        
+        // Check if it's an authentication error
+        if (response.status === 401 || response.status === 403) {
+          alert('Twilio authentication failed. Please check your Twilio credentials in the .env file and rebuild the extension.');
+        } else if (errorText.includes('html') || errorText.includes('login')) {
+          alert('Twilio authentication failed. The credentials may be incorrect. Please verify your Twilio Account SID and Auth Token.');
+        } else {
+          alert(`Twilio Error (${response.status}): ${errorText.substring(0, 200)}`);
+        }
         return;
       }
 

@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "ScrollBlock Web Tracker",
+  "version": "0.1.0",
+  "permissions": ["tabs", "idle", "storage", "alarms"],
+  "host_permissions": ["*://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/index.html"
+  }
+}
+

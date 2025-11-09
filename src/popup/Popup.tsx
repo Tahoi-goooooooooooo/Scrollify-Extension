@@ -253,16 +253,16 @@ function Popup() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
-        <div style={{ padding: '12px', backgroundColor: productiveBg, borderRadius: '4px' }}>
-          <div style={{ fontSize: '11px', color: productiveText, marginBottom: '4px' }}>Productive Time</div>
-          <div style={{ fontSize: '18px', fontWeight: 'bold', color: productiveText }}>
-            {formatTime(productiveMs)}
-          </div>
-        </div>
         <div style={{ padding: '12px', backgroundColor: unproductiveBg, borderRadius: '4px' }}>
           <div style={{ fontSize: '11px', color: unproductiveText, marginBottom: '4px' }}>Unproductive Time</div>
           <div style={{ fontSize: '18px', fontWeight: 'bold', color: unproductiveText }}>
             {formatTime(unproductiveMs)}
+          </div>
+        </div>
+        <div style={{ padding: '12px', backgroundColor: productiveBg, borderRadius: '4px' }}>
+          <div style={{ fontSize: '11px', color: productiveText, marginBottom: '4px' }}>Productive Time</div>
+          <div style={{ fontSize: '18px', fontWeight: 'bold', color: productiveText }}>
+            {formatTime(productiveMs)}
           </div>
         </div>
       </div>
